@@ -48,6 +48,11 @@
         .hint-move {
             background-color: rgba(0, 255, 0, 0.3) !important;
         }
+        @media (max-width: 600px) {
+            #board {
+                width: 300px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -67,10 +72,12 @@
     
     <div id="hintDisplay"></div>
     
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.js"></script>
+    <!-- Usando versões específicas e verificadas das bibliotecas -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/stockfish@latest/stockfish.min.js"></script>
+    <!-- Stockfish.js alternativo que funciona melhor -->
+    <script src="https://cdn.jsdelivr.net/npm/stockfish.js@0.9.0/stockfish.min.js"></script>
     
     <script>
         // Inicialização
@@ -79,23 +86,25 @@
             position: 'start',
             onDragStart: onDragStart,
             onDrop: onDrop,
-            onSnapEnd: onSnapEnd
+            onSnapEnd: onSnapEnd,
+            pieceTheme: 'https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/img/chesspieces/wikipedia/{piece}.png'
         });
         
         const game = new Chess();
-        const stockfish = new Stockfish();
+        const stockfish = new Worker('https://cdn.jsdelivr.net/npm/stockfish.js@0.9.0/stockfish.js');
         let hintsEnabled = false;
         let currentHint = null;
         
         // Configuração do Stockfish
         stockfish.onmessage = function(event) {
-            if (event && typeof event === 'string') {
-                if (event.includes('bestmove')) {
-                    const bestMove = event.split('bestmove ')[1].split(' ')[0];
+            if (event && typeof event.data === 'string') {
+                const data = event.data;
+                if (data.includes('bestmove')) {
+                    const bestMove = data.split('bestmove ')[1].split(' ')[0];
                     makeStockfishMove(bestMove);
-                } else if (event.includes('info') && event.includes('pv') && hintsEnabled && currentHint === 'thinking') {
+                } else if (data.includes('info') && data.includes('pv') && hintsEnabled && currentHint === 'thinking') {
                     // Processar dica do Stockfish
-                    const parts = event.split(' ');
+                    const parts = data.split(' ');
                     const scoreIndex = parts.indexOf('cp');
                     const moveIndex = parts.indexOf('pv') + 1;
                     
@@ -228,6 +237,11 @@
             
             $('#status').html(status);
         }
+        
+        // Inicializar o tabuleiro corretamente
+        $(document).ready(function() {
+            board.position(game.fen());
+        });
     </script>
 </body>
 </html>
