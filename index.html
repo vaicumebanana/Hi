@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Xadrez com Stockfish e Dicas</title>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #board {
+            width: 500px;
+            margin: 20px auto;
+        }
+        .controls {
+            margin: 20px 0;
+            text-align: center;
+        }
+        button {
+            padding: 8px 15px;
+            margin: 0 5px;
+            cursor: pointer;
+        }
+        #hintToggle {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+        }
+        #hintToggle.active {
+            background-color: #f44336;
+        }
+        #status {
+            margin: 10px 0;
+            font-weight: bold;
+            text-align: center;
+        }
+        #hintDisplay {
+            min-height: 50px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-top: 10px;
+            background-color: #f9f9f9;
+        }
+        .hint-move {
+            background-color: rgba(0, 255, 0, 0.3) !important;
+        }
+    </style>
+</head>
+<body>
+    <h1>Xadrez com Stockfish</h1>
+    <p>Jogue contra o Stockfish com opção de receber dicas!</p>
+    
+    <div id="board"></div>
+    
+    <div id="status">Faça seu movimento (você é as brancas)</div>
+    
+    <div class="controls">
+        <button id="newGameBtn">Novo Jogo</button>
+        <button id="hintToggle">Ativar Dicas</button>
+        <button id="getHintBtn">Obter Dica</button>
+        <button id="undoBtn">Desfazer</button>
+    </div>
+    
+    <div id="hintDisplay"></div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stockfish@latest/stockfish.min.js"></script>
+    
+    <script>
+        // Inicialização
+        const board = Chessboard('board', {
+            draggable: true,
+            position: 'start',
+            onDragStart: onDragStart,
+            onDrop: onDrop,
+            onSnapEnd: onSnapEnd
+        });
+        
+        const game = new Chess();
+        const stockfish = new Stockfish();
+        let hintsEnabled = false;
+        let currentHint = null;
+        
+        // Configuração do Stockfish
+        stockfish.onmessage = function(event) {
+            if (event && typeof event === 'string') {
+                if (event.includes('bestmove')) {
+                    const bestMove = event.split('bestmove ')[1].split(' ')[0];
+                    makeStockfishMove(bestMove);
+                } else if (event.includes('info') && event.includes('pv') && hintsEnabled && currentHint === 'thinking') {
+                    // Processar dica do Stockfish
+                    const parts = event.split(' ');
+                    const scoreIndex = parts.indexOf('cp');
+                    const moveIndex = parts.indexOf('pv') + 1;
+                    
+                    if (scoreIndex !== -1 && moveIndex !== -1) {
+                        const score = parseInt(parts[scoreIndex + 1]) / 100;
+                        const move = parts[moveIndex];
+                        const from = move.substring(0, 2);
+                        const to = move.substring(2, 4);
+                        
+                        $('#hintDisplay').html(`Dica: Mova de ${from} para ${to}<br>Avaliação: ${score > 0 ? '+' : ''}${score.toFixed(1)}`);
+                        
+                        // Destacar a peça e o movimento sugerido
+                        $('.square-55d63').removeClass('hint-move');
+                        $(`#board .square-${from}`).addClass('hint-move');
+                        $(`#board .square-${to}`).addClass('hint-move');
+                    }
+                }
+            }
+        };
+        
+        stockfish.postMessage('uci');
+        stockfish.postMessage('setoption name Skill Level value 5');
+        stockfish.postMessage('isready');
+        
+        // Event handlers
+        $('#newGameBtn').on('click', function() {
+            game.reset();
+            board.position(game.fen());
+            $('#status').html('Faça seu movimento (você é as brancas)');
+            $('#hintDisplay').html('');
+            $('.square-55d63').removeClass('hint-move');
+        });
+        
+        $('#hintToggle').on('click', function() {
+            hintsEnabled = !hintsEnabled;
+            $(this).toggleClass('active');
+            $(this).text(hintsEnabled ? 'Desativar Dicas' : 'Ativar Dicas');
+            $('#hintDisplay').html('');
+            $('.square-55d63').removeClass('hint-move');
+            
+            if (!hintsEnabled) {
+                currentHint = null;
+            }
+        });
+        
+        $('#getHintBtn').on('click', function() {
+            if (game.game_over()) return;
+            if (game.turn() === 'w') { // Só dá dicas para o jogador (brancas)
+                $('#hintDisplay').html('Pensando...');
+                $('.square-55d63').removeClass('hint-move');
+                currentHint = 'thinking';
+                stockfish.postMessage('position fen ' + game.fen());
+                stockfish.postMessage('go depth 10');
+            } else {
+                $('#hintDisplay').html('Dicas só estão disponíveis no seu turno!');
+            }
+        });
+        
+        $('#undoBtn').on('click', function() {
+            if (game.history().length >= 1) {
+                game.undo();
+                game.undo(); // Desfaz o último movimento do jogador e do Stockfish
+                board.position(game.fen());
+                updateStatus();
+                $('#hintDisplay').html('');
+                $('.square-55d63').removeClass('hint-move');
+            }
+        });
+        
+        function onDragStart(source, piece, position, orientation) {
+            // Não permitir mover peças quando não for o turno do jogador ou jogo acabou
+            if (game.game_over() || 
+                (game.turn() === 'b' && piece.search(/^w/) !== -1) ||
+                (game.turn() === 'w' && piece.search(/^b/) !== -1)) {
+                return false;
+            }
+        }
+        
+        function onDrop(source, target) {
+            $('.square-55d63').removeClass('hint-move');
+            
+            // Verificar se o movimento é legal
+            const move = game.move({
+                from: source,
+                to: target,
+                promotion: 'q' // Sempre promover a rainha por simplicidade
+            });
+            
+            // Movimento ilegal
+            if (move === null) return 'snapback';
+            
+            updateStatus();
+            
+            // Se o jogo não acabou, fazer o Stockfish jogar
+            if (!game.game_over()) {
+                setTimeout(() => {
+                    stockfish.postMessage('position fen ' + game.fen());
+                    stockfish.postMessage('go depth 12');
+                }, 250);
+            }
+        }
+        
+        function onSnapEnd() {
+            board.position(game.fen());
+        }
+        
+        function makeStockfishMove(move) {
+            game.move(move);
+            board.position(game.fen());
+            updateStatus();
+        }
+        
+        function updateStatus() {
+            let status = '';
+            
+            if (game.in_checkmate()) {
+                status = 'Fim de jogo, ' + (game.turn() === 'w' ? 'pretas' : 'brancas') + ' venceram por xeque-mate!';
+            } else if (game.in_draw()) {
+                status = 'Fim de jogo, empate por ' + (
+                    game.in_stalemate() ? 'afogamento' :
+                    game.in_threefold_repetition() ? 'repetição' :
+                    game.insufficient_material() ? 'material insuficiente' : '50 movimentos'
+                );
+            } else {
+                status = 'Turno das ' + (game.turn() === 'w' ? 'brancas' : 'pretas');
+                if (game.in_check()) {
+                    status += ' (xeque!)';
+                }
+            }
+            
+            $('#status').html(status);
+        }
+    </script>
+</body>
+</html>
